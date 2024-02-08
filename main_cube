@@ -1,0 +1,456 @@
+#include <glad/glad.h>
+#include <GLFW/glfw3.h>
+#include <glm/glm/glm.hpp>
+#include <glm/glm/gtc/matrix_transform.hpp>
+#include <glm/glm/gtc/type_ptr.hpp>
+
+#include <iostream>
+#include <string>
+#include <cmath>
+
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "tiny_obj_loader.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+
+//Modifier for the model's x Position
+float x_mod;
+float y_mod;
+float z_mod = -0.8;
+
+
+void Key_Callback(GLFWwindow* window // Pointer to window
+    , int key// keycode of press
+    , int scancode // physical postion of the press
+    , int action // either press / release
+    , int mods) // which modifier keys are held down
+{
+    if (key == GLFW_KEY_D /*&& action == GLFW_PRESS*/)
+    {
+        //Move
+        x_mod += 0.1f;
+    }
+    if (key == GLFW_KEY_A /*&& action == GLFW_PRESS*/)
+    {
+        //Move
+        x_mod -= 0.1f;
+    }
+    if (key == GLFW_KEY_W /*&& action == GLFW_PRESS*/)
+    {
+        y_mod -= -0.1f;
+    }
+}
+
+int main(void)
+{
+    //load the vert shader file into a string stream
+    std::fstream vertSrc("Shaders/Sample.vert");
+    std::stringstream vertBuff;
+
+    //Add the file stream to the string stream
+    vertBuff << vertSrc.rdbuf();
+
+    //Convert the stream to a character array
+    std::string vertS = vertBuff.str();
+    const char* v = vertS.c_str();
+
+    //load the frag shader file into a string stream
+    std::fstream fragSrc("Shaders/Sample.frag");
+    std::stringstream fragBuff;
+
+    //Add the file stream to the string stream
+    fragBuff << fragSrc.rdbuf();
+
+    //Convert the stream to a character array
+    std::string fragS = fragBuff.str();
+    const char* f = fragS.c_str();
+
+    GLFWwindow* window;
+
+    float window_width = 600;
+    float window_height = 600;
+
+    /* Initialize the library */
+    if (!glfwInit())
+        return -1;
+
+    /* Create a windowed mode window and its OpenGL context */
+    window = glfwCreateWindow(600, 600, "Paul Macaraeg", NULL, NULL);
+    if (!window)
+    {
+        glfwTerminate();
+        return -1;
+    }
+
+    /* Make the window's context current */
+    glfwMakeContextCurrent(window);
+    gladLoadGL();
+
+    int img_width, img_height, colorChannels; //Width, Height, No. Of color channels
+
+    stbi_set_flip_vertically_on_load(true);
+    unsigned char* tex_bytes =
+        stbi_load("3D/ayaya.png", &img_width, &img_height, &colorChannels, 0);
+
+    GLuint texture;
+
+    //Generate a texture
+    glGenTextures(1, &texture);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+
+    glTexImage2D(GL_TEXTURE_2D,
+        0, GL_RGBA,
+        img_width,
+        img_height,
+        0,
+        GL_RGBA,
+        GL_UNSIGNED_BYTE,
+        tex_bytes);
+
+    glGenerateMipmap(GL_TEXTURE_2D);
+    stbi_image_free(tex_bytes);
+
+
+    //Create a Vertex Shader
+    GLuint vertexShader = glCreateShader(GL_VERTEX_SHADER);
+
+    //Assign the source to the vertex shader
+    glShaderSource(vertexShader, 1, &v, NULL);
+
+    //Compile the vertex shader
+    glCompileShader(vertexShader);
+
+    //Create a Fragment Shader
+    GLuint fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+
+    //Assign the source to the fragment shader
+    glShaderSource(fragmentShader, 1, &f, NULL);
+
+    //Compile the fragment shader
+    glCompileShader(fragmentShader);
+
+    GLint isCompiled = 0;
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, &isCompiled);
+    if (isCompiled == GL_FALSE)
+    {
+        GLint maxLength = 0;
+        glGetShaderiv(fragmentShader, GL_INFO_LOG_LENGTH, &maxLength);
+
+        // The maxLength includes the NULL character
+        std::vector<GLchar> errorLog(maxLength);
+        glGetShaderInfoLog(fragmentShader, maxLength, &maxLength, &errorLog[0]);
+
+        // Provide the infolog in whatever manor you deem best.
+        // Exit with failure.
+        //glDeleteShader(shader); // Don't leak the shader.
+        //return;
+
+        std::cout << &errorLog[0];
+    }
+    isCompiled = 0;
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, &isCompiled);
+    if (isCompiled == GL_FALSE)
+    {
+        GLint maxLength = 0;
+        glGetShaderiv(vertexShader, GL_INFO_LOG_LENGTH, &maxLength);
+
+        // The maxLength includes the NULL character
+        std::vector<GLchar> errorLog(maxLength);
+        glGetShaderInfoLog(vertexShader, maxLength, &maxLength, &errorLog[0]);
+
+        // Provide the infolog in whatever manor you deem best.
+        // Exit with failure.
+        //glDeleteShader(shader); // Don't leak the shader.
+        //return;
+
+        std::cout << &errorLog[0];
+    }
+
+
+    //Create shader program
+    GLuint shaderProg = glCreateProgram();
+
+
+    //Attach the compiled Vertex shader
+    glAttachShader(shaderProg, vertexShader);
+    //Attach the compiled Vertex shader
+    glAttachShader(shaderProg, fragmentShader);
+
+    //Finalize the compilation process
+    glLinkProgram(shaderProg);
+
+    //Set the callback function to the window
+    glfwSetKeyCallback(window, Key_Callback);
+
+    /*glViewport(0, // Min x
+        0,//Min y
+        600,//Width
+        600); // Height
+    */
+
+    std::string path = "3D/myCube.obj";
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> material;
+    std::string warning, error;
+
+    tinyobj::attrib_t attributes;
+
+    bool success = tinyobj::LoadObj(&attributes, &shapes, &material, &warning, &error, path.c_str());
+
+    std::vector<GLuint> mesh_indices;
+    for (int i = 0; i < shapes[0].mesh.indices.size(); i++)
+    {
+        mesh_indices.push_back(shapes[0].mesh.indices[i].vertex_index);
+    }
+
+    GLfloat vertices[]
+    {
+        //x  //y   //z
+        0.f, 0.5f, 0.f, //0
+        -0.5f, -0.5f, 0.f, //1
+        0.5f, -0.5f, 0.f //2
+
+    };
+
+    GLuint indices[]
+    {
+        0,1,2
+    };
+
+    GLfloat UV[]{
+        0.f, 1.f,
+        0.f, 0.f,
+        1.f, 1.f,
+        1.f, 0.f,
+        1.f, 1.f,
+        1.f, 0.f,
+        0.f, 1.f,
+        0.f, 0.f
+    };
+
+
+    //Create VAO,VBO,EBO Variables
+    GLuint VAO, VBO, EBO, VBO_UV;
+
+    //Initialize VAO and VBO
+    glGenVertexArrays(1, &VAO);
+    glGenBuffers(1, &VBO);
+    glGenBuffers(1, &EBO);
+    glGenBuffers(1, &VBO_UV);
+
+    //Currently Editing VAO = null
+    glBindVertexArray(VAO);
+    //Currently Editing VAO = VAO
+    // 
+    //Currently Editing VBO = null
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    //Currently Editing VBO = VBO
+    //VAO <-VBO
+
+   
+
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GL_FLOAT) * attributes.vertices.size() /*Size of buffer in bytes*/,
+        attributes.vertices.data() /*Array*/, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3 /*x y z*/, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+
+    //Currently Editing VBO = VBO
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    //Currently Editing VBO = EBO
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(GLuint) * mesh_indices.size(), mesh_indices.data(), GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, VBO_UV);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat)* (sizeof(UV) / sizeof(UV[0])), &UV[0], GL_DYNAMIC_DRAW);
+
+    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(2);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+
+    glm::mat4 identity_martix = glm::mat4(1.0f);
+
+    float x = 0.0;
+    float y = 0.0;
+    float z = 0.0;
+
+    float scale_x = 0.5;
+    float scale_y = 0.5;
+    float scale_z = 0.5;
+
+    float axis_x = 0.0;
+    float axis_y = 1.0;
+    float axis_z = 0.0;
+
+    float theta = 0.0;
+
+    //Create projection matrix
+    //glm::mat4 projectionMatrix = glm::ortho(-2.f, //L   
+    //    2.f,//R
+    //    -2.f,//B
+    //    2.f,//T
+    //    -1.f,//Znear
+    //    1.f);//Zfar
+
+    glm::mat4 projectionMatrix = glm::perspective(glm::radians(60.f), // FOV
+        window_height / window_width, // Aspect Ratio
+        0.1f, // ZNear > 0
+        100.f); // ZFar
+
+    //Position of the camera in the world / eye
+    glm::vec3 cameraPos = glm::vec3(0, 0, 3.f);
+
+    glm::mat4 camreraPositionMatrix = glm::translate(glm::mat4(1.0f), cameraPos * -1.0f);
+
+    //World up dirtection
+    //Normally just 1 in y
+    glm::vec3 WorldUp = glm::vec3(0, 1.0f, 0);
+
+    //Camera's Center
+    glm::vec3 Center = glm::vec3(0, 0.f, 0);
+
+    //Get the Forward
+    glm::vec3 Forward = glm::vec3(Center - cameraPos);
+    //Normalize
+    Forward = glm::normalize(Forward);
+
+    //Get the Right
+    glm::vec3 Right = glm::normalize(glm::cross(Forward, WorldUp));
+
+    //Get the Up
+    glm::vec3 Up = glm::normalize(glm::cross(Right, Forward));
+
+    //Construct the Camera Orientation Matrix
+    /*glm::mat4 cameraOrientation = glm::mat4(1.f);*/
+
+    //Manually assign the matrix
+    //Matrix[Column][Row]
+    /*cameraOrientation[0][0] = Right.x;
+    cameraOrientation[1][0] = Right.y;
+    cameraOrientation[2][0] = Right.z;
+
+    cameraOrientation[0][1] = Up.x;
+    cameraOrientation[1][1] = Up.y;
+    cameraOrientation[2][1] = Up.z;
+
+    cameraOrientation[0][2] = -Forward.x;
+    cameraOrientation[1][2] = -Forward.y;
+    cameraOrientation[2][2] = -Forward.z;*/
+
+    //Camera view matrix
+    glm::mat4 viewMatrix = glm::lookAt(cameraPos, Center, WorldUp);
+
+    stbi_image_free(tex_bytes);
+    glEnable(GL_DEPTH_TEST);
+
+    /* Loop until the user closes the window */
+    while (!glfwWindowShouldClose(window))
+    {
+        /* Render here */
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+        /*float radius = 2.f;
+        float x_mod2;
+        float y_mod2;
+        float x_mod3;
+        float y_mod3;
+        x_mod = radius * cos(glm::radians(theta));
+        y_mod = radius * sin(glm::radians(theta));*/
+        z = z_mod;
+        /*x_mod2 = radius * cos(glm::radians(theta + 120));
+        y_mod2 = radius * sin(glm::radians(theta + 120));
+        x_mod3 = radius * cos(glm::radians(theta + 240));
+        y_mod3 = radius * sin(glm::radians(theta + 240));*/
+        theta += 0.1f;
+
+
+        ////Start with the translation matrix
+        glm::mat4 transformation_matrix = glm::translate(identity_martix, glm::vec3(x, y, z));
+
+        //////Multiply the resulting matrix with the scale matrix
+        transformation_matrix = glm::scale(transformation_matrix, glm::vec3(scale_x, scale_y, scale_z));
+
+        //////Finally, multiply it with the rotation matrix
+        transformation_matrix = glm::rotate(transformation_matrix, glm::radians(theta), glm::normalize(glm::vec3(axis_x, axis_y, axis_z)));
+
+        //////Get location of projection matrix
+        unsigned int projectionLoc = glGetUniformLocation(shaderProg, "projection");
+        //////Assign the matrix
+        glUniformMatrix4fv(projectionLoc, 1, GL_FALSE, glm::value_ptr(projectionMatrix));
+
+
+        ////Get location of transformation matrix
+        unsigned int transformLoc = glGetUniformLocation(shaderProg, "transform");
+        ////Assign the matrix
+        glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transformation_matrix));
+        
+
+        //////Start with the translation matrix
+        //glm::mat4 transformation_mat2 = glm::translate(identity_martix, glm::vec3(x_mod2, y_mod2, z));
+
+        ////////Multiply the resulting matrix with the scale matrix
+        //transformation_mat2 = glm::scale(transformation_mat2, glm::vec3(scale_x, scale_y, scale_z));
+
+        ////////Finally, multiply it with the rotation matrix
+        //transformation_mat2 = glm::rotate(transformation_mat2, glm::radians(theta), glm::normalize(glm::vec3(axis_x, axis_y, axis_z)));
+        //////Get location of transformation matrix
+        //unsigned int transformLoc2 = glGetUniformLocation(shaderProg, "transform");
+        //////Assign the matrix
+        //glUniformMatrix4fv(transformLoc2, 1, GL_FALSE, glm::value_ptr(transformation_mat2));
+        //glBindVertexArray(VAO);
+        //glDrawElements(GL_TRIANGLES, mesh_indices.size(), GL_UNSIGNED_INT, 0);
+
+        //glm::mat4 transformation_mat3 = glm::translate(identity_martix, glm::vec3(x_mod3, y_mod3, z));
+
+        ////////Multiply the resulting matrix with the scale matrix
+        //transformation_mat3 = glm::scale(transformation_mat3, glm::vec3(scale_x, scale_y, scale_z));
+
+        ////////Finally, multiply it with the rotation matrix
+        //transformation_mat3 = glm::rotate(transformation_mat3, glm::radians(theta), glm::normalize(glm::vec3(axis_x, axis_y, axis_z)));
+        //////Get location of transformation matrix
+        //unsigned int transformLoc3 = glGetUniformLocation(shaderProg, "transform");
+        //////Assign the matrix`
+        //glUniformMatrix4fv(transformLoc3, 1, GL_FALSE, glm::value_ptr(transformation_mat3));
+        //glBindVertexArray(VAO);
+        //glDrawElements(GL_TRIANGLES, mesh_indices.size(), GL_UNSIGNED_INT, 0);
+
+        unsigned int viewLoc = glGetUniformLocation(shaderProg, "view");
+        glUniformMatrix4fv(viewLoc, 1, GL_FALSE, glm::value_ptr(viewMatrix));
+
+        GLuint texAddress = glGetUniformLocation(shaderProg, "tex0");
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glUniform1i(texAddress, 0);
+
+        
+
+
+        //Tell openGL to use this shader
+        //for VAO/s below
+        glUseProgram(shaderProg);
+        glBindVertexArray(VAO);
+        glDrawElements(GL_TRIANGLES, mesh_indices.size(), GL_UNSIGNED_INT, 0);
+
+        //Bind The VAO to prep it for drawing
+        //Draw the triangle
+        //glDrawArrays(GL_TRIANGLES, 0 , 3);
+
+        /* Swap front and back buffers */
+        glfwSwapBuffers(window);
+
+        /* Poll for and process events */
+        glfwPollEvents();
+    }
+    //Cleanup
+    glDeleteVertexArrays(1, &VAO);
+    glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &EBO);
+
+    glfwTerminate();
+    return 0;
+}
